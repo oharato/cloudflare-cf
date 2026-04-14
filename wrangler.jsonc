@@ -1,0 +1,22 @@
+{
+  "name": "todo-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-01",
+  "assets": {
+    "directory": "./assets"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TODO_DB",
+        "class_name": "TodoDB"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TodoDB"]
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+/* Pico.css ベースに上書きするカスタムスタイル */
+@import "@picocss/pico/css/pico.violet.min.css";
+
+:root {
+  --pico-font-size: 15px;
+}
+
+body {
+  padding-top: 3rem;
+  padding-bottom: 3rem;
+}
+
+.app-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.app-header h1 {
+  font-size: 1.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.badges {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  background: var(--pico-primary-background);
+  color: var(--pico-primary);
+  border: 1px solid var(--pico-primary-border);
+}
+
+.todo-list article {
+  padding: 0;
+  margin-bottom: 1rem;
+}
+
+.todo-list article header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--pico-table-border-color);
+  margin-bottom: 0;
+}
+
+.section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pico-muted-color);
+}
+
+.section-count {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: var(--pico-code-background-color);
+  color: var(--pico-muted-color);
+  padding: 1px 8px;
+  border-radius: 9999px;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--pico-table-border-color);
+  transition: background 0.1s;
+}
+
+.todo-item:last-child {
+  border-bottom: none;
+}
+
+.todo-item input[type="checkbox"] {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.todo-title {
+  flex: 1;
+  font-size: 0.9rem;
+  word-break: break-word;
+  transition: color 0.15s;
+}
+
+.todo-title.completed {
+  text-decoration: line-through;
+  color: var(--pico-muted-color);
+}
+
+.todo-meta {
+  font-size: 0.7rem;
+  color: var(--pico-muted-color);
+  flex-shrink: 0;
+}
+
+.delete-btn {
+  background: none;
+  border: none;
+  color: var(--pico-muted-color);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 3px 6px;
+  border-radius: 6px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.1s, background 0.1s;
+}
+
+.delete-btn:hover {
+  color: var(--pico-del-color);
+  background: color-mix(in srgb, var(--pico-del-color) 10%, transparent);
+}
+
+.stats {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--pico-muted-color);
+  margin-top: 0.5rem;
+}
+
+.add-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.add-form input {
+  flex: 1;
+  margin: 0;
+}
+
+.add-form button {
+  white-space: nowrap;
+  margin: 0;
+  width: auto;
+}

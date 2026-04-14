@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TODO アプリ</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 48px 16px;
+      color: #1a1a2e;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 580px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      font-size: 0.78rem;
+      color: #888;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #ede9fe;
+      color: #6d28d9;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 9999px;
+    }
+
+    /* Add form */
+    .add-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .add-form input {
+      flex: 1;
+      padding: 12px 16px;
+      border: 2px solid #e5e7eb;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      outline: none;
+      background: white;
+      transition: border-color 0.15s;
+    }
+
+    .add-form input:focus {
+      border-color: #6d28d9;
+      box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.1);
+    }
+
+    .add-form button {
+      padding: 12px 20px;
+      background: #6d28d9;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+
+    .add-form button:hover { background: #5b21b6; }
+    .add-form button:active { background: #4c1d95; }
+
+    /* Error */
+    .error-bar {
+      background: #fef2f2;
+      color: #dc2626;
+      border: 1px solid #fecaca;
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 0.875rem;
+      display: none;
+    }
+
+    /* Card */
+    .card {
+      background: white;
+      border-radius: 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    .section-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #9ca3af;
+    }
+
+    .section-count {
+      font-size: 0.72rem;
+      background: #f3f4f6;
+      color: #6b7280;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-weight: 600;
+    }
+
+    /* Todo item */
+    .todo-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 13px 16px;
+      border-bottom: 1px solid #f9fafb;
+      transition: background 0.1s;
+    }
+
+    .todo-item:last-child { border-bottom: none; }
+    .todo-item:hover { background: #fafafa; }
+
+    .todo-item input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: #6d28d9;
+      flex-shrink: 0;
+    }
+
+    .todo-title {
+      flex: 1;
+      font-size: 0.925rem;
+      color: #1a1a2e;
+      word-break: break-word;
+    }
+
+    .todo-item.completed .todo-title {
+      text-decoration: line-through;
+      color: #9ca3af;
+    }
+
+    .todo-meta {
+      font-size: 0.72rem;
+      color: #cbd5e1;
+      flex-shrink: 0;
+    }
+
+    .delete-btn {
+      background: none;
+      border: none;
+      color: #d1d5db;
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 3px 7px;
+      border-radius: 6px;
+      line-height: 1;
+      transition: color 0.1s, background 0.1s;
+      flex-shrink: 0;
+    }
+
+    .delete-btn:hover {
+      color: #ef4444;
+      background: #fef2f2;
+    }
+
+    /* Empty / Loading state */
+    .empty-state, .loading-state {
+      padding: 36px;
+      text-align: center;
+      color: #9ca3af;
+      font-size: 0.9rem;
+    }
+
+    /* Stats */
+    .stats {
+      text-align: center;
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>📝 TODO アプリ</h1>
+      <div class="subtitle">
+        <span class="badge">⚡ Containers</span>
+        <span class="badge">🗄️ Durable Objects (SQLite)</span>
+      </div>
+    </header>
+
+    <div id="errorBar" class="error-bar"></div>
+
+    <form class="add-form" id="addForm">
+      <input
+        type="text"
+        id="newTodo"
+        placeholder="新しいタスクを入力..."
+        autocomplete="off"
+        maxlength="200"
+      />
+      <button type="submit">追加</button>
+    </form>
+
+    <div id="loadingState" class="card">
+      <div class="loading-state">読み込み中...</div>
+    </div>
+
+    <div id="mainContent" style="display:none">
+      <!-- Active todos -->
+      <div class="card" id="activeCard">
+        <div class="section-header">
+          <span class="section-title">未完了</span>
+          <span class="section-count" id="activeCount">0</span>
+        </div>
+        <div id="activeTodos"></div>
+      </div>
+
+      <!-- Completed todos -->
+      <div class="card" id="completedCard" style="display:none">
+        <div class="section-header">
+          <span class="section-title">完了済み</span>
+          <span class="section-count" id="completedCount">0</span>
+        </div>
+        <div id="completedTodos"></div>
+      </div>
+
+      <div class="stats" id="statsBar"></div>
+    </div>
+  </div>
+
+  <script>
+    const API = "/api/todos";
+
+    // ── API helpers ──────────────────────────────────────────────
+    async function apiFetch(url, options = {}) {
+      const res = await fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+      });
+      if (res.status === 204) return null;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    const api = {
+      list: () => apiFetch(API),
+      create: (title) => apiFetch(API, { method: "POST", body: JSON.stringify({ title }) }),
+      update: (id, patch) => apiFetch(`${API}/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+      remove: (id) => apiFetch(`${API}/${id}`, { method: "DELETE" }),
+    };
+
+    // ── DOM helpers ───────────────────────────────────────────────
+    const $ = (id) => document.getElementById(id);
+
+    function showError(msg) {
+      const el = $("errorBar");
+      el.textContent = msg;
+      el.style.display = "block";
+      clearTimeout(el._timer);
+      el._timer = setTimeout(() => (el.style.display = "none"), 4000);
+    }
+
+    function escHtml(str) {
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function formatDate(iso) {
+      const d = new Date(iso.replace(" ", "T") + "Z");
+      return d.toLocaleDateString("ja-JP", { month: "short", day: "numeric" });
+    }
+
+    // ── Render ────────────────────────────────────────────────────
+    function buildTodoEl(todo) {
+      const div = document.createElement("div");
+      div.className = "todo-item" + (todo.completed ? " completed" : "");
+      div.dataset.id = todo.id;
+      div.innerHTML = `
+        <input type="checkbox" ${todo.completed ? "checked" : ""} aria-label="完了切替" />
+        <span class="todo-title">${escHtml(todo.title)}</span>
+        <span class="todo-meta">${formatDate(todo.created_at)}</span>
+        <button class="delete-btn" title="削除" aria-label="削除">✕</button>
+      `;
+
+      div.querySelector("input").addEventListener("change", async (e) => {
+        try {
+          await api.update(todo.id, { completed: e.target.checked });
+          await render();
+        } catch (err) {
+          showError(err.message);
+          e.target.checked = !e.target.checked;
+        }
+      });
+
+      div.querySelector(".delete-btn").addEventListener("click", async () => {
+        try {
+          await api.remove(todo.id);
+          await render();
+        } catch (err) {
+          showError(err.message);
+        }
+      });
+
+      return div;
+    }
+
+    async function render() {
+      try {
+        const todos = await api.list();
+        const active = todos.filter((t) => !t.completed);
+        const done = todos.filter((t) => t.completed);
+
+        $("loadingState").style.display = "none";
+        $("mainContent").style.display = "block";
+
+        // Active
+        $("activeCount").textContent = active.length;
+        const activeTodosEl = $("activeTodos");
+        activeTodosEl.innerHTML = "";
+        if (active.length === 0) {
+          activeTodosEl.innerHTML = '<div class="empty-state">タスクなし 🎉</div>';
+        } else {
+          active.forEach((t) => activeTodosEl.appendChild(buildTodoEl(t)));
+        }
+
+        // Completed
+        if (done.length > 0) {
+          $("completedCard").style.display = "block";
+          $("completedCount").textContent = done.length;
+          const completedTodosEl = $("completedTodos");
+          completedTodosEl.innerHTML = "";
+          done.forEach((t) => completedTodosEl.appendChild(buildTodoEl(t)));
+        } else {
+          $("completedCard").style.display = "none";
+        }
+
+        $("statsBar").textContent =
+          `合計 ${todos.length} 件 — 未完了 ${active.length} 件 / 完了 ${done.length} 件`;
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
+    // ── Events ────────────────────────────────────────────────────
+    $("addForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = $("newTodo");
+      const title = input.value.trim();
+      if (!title) return;
+      const btn = e.target.querySelector("button");
+      btn.disabled = true;
+      try {
+        await api.create(title);
+        input.value = "";
+        await render();
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        btn.disabled = false;
+        input.focus();
+      }
+    });
+
+    // ── Init ──────────────────────────────────────────────────────
+    render();
+  </script>
+</body>
+</html>

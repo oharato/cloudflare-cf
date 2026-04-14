@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TODO アプリ</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="container" style="max-width: 600px">
+
+    <header class="app-header">
+      <h1>📝 TODO アプリ</h1>
+      <div class="badges">
+        <span class="badge">⚡ Static Assets</span>
+        <span class="badge">🗄️ Durable Objects (SQLite)</span>
+      </div>
+    </header>
+
+    <div x-data="todoApp">
+
+      <!-- エラー -->
+      <div x-show="error" x-text="error" role="alert" class="pico-background-red-100" style="margin-bottom:1rem; padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.875rem; color: var(--pico-del-color)"></div>
+
+      <!-- 追加フォーム -->
+      <form class="add-form" @submit.prevent="addTodo">
+        <input
+          type="text"
+          x-model="newTitle"
+          placeholder="新しいタスクを入力..."
+          autocomplete="off"
+          maxlength="200"
+          :disabled="loading"
+        />
+        <button type="submit" :disabled="loading || !newTitle.trim()">追加</button>
+      </form>
+
+      <!-- ローディング -->
+      <div x-show="loading" aria-busy="true" style="text-align:center; padding: 2rem 0; color: var(--pico-muted-color)">
+        読み込み中...
+      </div>
+
+      <template x-if="!loading">
+        <div class="todo-list">
+
+          <!-- 未完了 -->
+          <article>
+            <header>
+              <span class="section-title">未完了</span>
+              <span class="section-count" x-text="activeTodos.length"></span>
+            </header>
+            <template x-if="activeTodos.length === 0">
+              <div style="padding: 2rem; text-align: center; color: var(--pico-muted-color); font-size: 0.9rem">
+                タスクなし 🎉
+              </div>
+            </template>
+            <template x-for="todo in activeTodos" :key="todo.id">
+              <div class="todo-item">
+                <input
+                  type="checkbox"
+                  :checked="todo.completed"
+                  @change="toggleTodo(todo)"
+                  aria-label="完了切替"
+                />
+                <span class="todo-title" x-text="todo.title"></span>
+                <span class="todo-meta" x-text="formatDate(todo.created_at)"></span>
+                <button class="delete-btn" @click="deleteTodo(todo.id)" aria-label="削除" title="削除">✕</button>
+              </div>
+            </template>
+          </article>
+
+          <!-- 完了済み -->
+          <article x-show="completedTodos.length > 0">
+            <header>
+              <span class="section-title">完了済み</span>
+              <span class="section-count" x-text="completedTodos.length"></span>
+            </header>
+            <template x-for="todo in completedTodos" :key="todo.id">
+              <div class="todo-item">
+                <input
+                  type="checkbox"
+                  :checked="todo.completed"
+                  @change="toggleTodo(todo)"
+                  aria-label="完了切替"
+                />
+                <span class="todo-title completed" x-text="todo.title"></span>
+                <span class="todo-meta" x-text="formatDate(todo.created_at)"></span>
+                <button class="delete-btn" @click="deleteTodo(todo.id)" aria-label="削除" title="削除">✕</button>
+              </div>
+            </template>
+          </article>
+
+          <!-- 統計 -->
+          <p class="stats">
+            合計 <span x-text="todos.length"></span> 件 —
+            未完了 <span x-text="activeTodos.length"></span> 件 /
+            完了 <span x-text="completedTodos.length"></span> 件
+          </p>
+
+        </div>
+      </template>
+
+    </div>
+  </main>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>
