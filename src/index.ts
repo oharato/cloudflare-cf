@@ -8,6 +8,7 @@ export { TodoDB, VoiceContainer, TodoContainer };
 interface Env {
   TODO_DB: DurableObjectNamespace;
   VOICE_CONTAINER: DurableObjectNamespace;
+  TODO_BACKUP: R2Bucket;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -19,15 +20,60 @@ app.all("/api/*", async (c) => {
 });
 
 // 静的ファイルは Cloudflare Static Assets が自動配信
+// R2 バックアップ処理
+async function backupToR2(env: Env): Promise<void> {
+  try {
+    const dbStub = env.TODO_DB.get(env.TODO_DB.idFromName("global"));
+    const dumpRes = await dbStub.fetch(
+      new Request("http://internal/api/admin/db-dump"),
+    );
+    if (!dumpRes.ok) {
+      console.error(`[Backup] dump 取得失敗: ${dumpRes.status}`);
+      return;
+    }
+    const dumpData = await dumpRes.text();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const key = `backups/${timestamp}.sql`;
+
+    await Promise.all([
+      // タイムスタンプ付きバックアップ (30 日間保持)
+      env.TODO_BACKUP.put(key, dumpData, {
+        httpMetadata: { contentType: "text/plain; charset=utf-8" },
+        customMetadata: { size: String(dumpData.length) },
+      }),
+      // 最新バックアップ (常に上書き)
+      env.TODO_BACKUP.put("backups/latest.sql", dumpData, {
+        httpMetadata: { contentType: "text/plain; charset=utf-8" },
+        customMetadata: { size: String(dumpData.length), timestamp },
+      }),
+    ]);
+
+    console.log(
+      `[Backup] R2 に保存完了: ${key} (${(dumpData.length / 1024).toFixed(1)} KB)`,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+    console.error(`[Backup] エラー: ${msg}`);
+  }
+}
+
 export default {
   fetch: app.fetch,
 
-  // Cron Trigger: 5 分ごとに未処理 TODO を VOICEVOX で音声合成
+  // Cron Trigger:
+  //   */5 * * * *  → 未処理 TODO を VOICEVOX で音声合成
+  //   0 * * * *    → SQLite ファイルを R2 にバックアップ
   async scheduled(
     _event: ScheduledEvent,
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
+    // 毎時 0 分: SQLite ファイルを R2 にバックアップ
+    if (_event.cron === "0 * * * *") {
+      await backupToR2(env);
+      return;
+    }
+
     try {
       const dbStub = env.TODO_DB.get(env.TODO_DB.idFromName("global"));
       const voiceStub = env.VOICE_CONTAINER.get(

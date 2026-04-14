@@ -163,6 +163,52 @@ export class TodoDB extends DurableObject {
       return c.json({ ok: true });
     });
 
+    // GET /api/admin/db-dump - SQL INSERT 形式でエクスポート (Cron からのみ呼び出す)
+    app.get("/api/admin/db-dump", (c) => {
+      const rows = this.sql
+        .exec<{
+          id: number;
+          title: string;
+          completed: number;
+          created_at: string;
+          voice_status: string;
+          voice_data: ArrayBuffer | null;
+        }>(
+          "SELECT id, title, completed, created_at, voice_status, voice_data FROM todos ORDER BY id",
+        )
+        .toArray();
+
+      const toHex = (buf: ArrayBuffer) =>
+        Array.from(new Uint8Array(buf))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+
+      const esc = (s: string) => `'${s.replace(/'/g, "''")}'`;
+
+      let sql = `-- SQLite dump generated at ${new Date().toISOString()}\n`;
+      sql += `CREATE TABLE IF NOT EXISTS todos (\n`;
+      sql += `  id           INTEGER PRIMARY KEY AUTOINCREMENT,\n`;
+      sql += `  title        TEXT    NOT NULL,\n`;
+      sql += `  completed    INTEGER NOT NULL DEFAULT 0,\n`;
+      sql += `  created_at   TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,\n`;
+      sql += `  voice_status TEXT    NOT NULL DEFAULT 'pending',\n`;
+      sql += `  voice_data   BLOB\n`;
+      sql += `);\n\n`;
+
+      for (const row of rows) {
+        const blob = row.voice_data
+          ? `X'${toHex(row.voice_data as ArrayBuffer)}'`
+          : "NULL";
+        sql +=
+          `INSERT INTO todos (id, title, completed, created_at, voice_status, voice_data) VALUES (` +
+          `${row.id}, ${esc(row.title)}, ${row.completed}, ${esc(row.created_at)}, ${esc(row.voice_status)}, ${blob});\n`;
+      }
+
+      return new Response(sql, {
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    });
+
     return app;
   }
 

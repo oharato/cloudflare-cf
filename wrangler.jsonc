@@ -1,45 +1,58 @@
 {
-  "name": "todo-app",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-04-01",
-  "observability": {
-    "enabled": true
-  },
-  "assets": {
-    "directory": "./assets"
-  },
-  "containers": [
-    {
-      "class_name": "VoiceContainer",
-      "image": "./container/voice/Dockerfile",
-      "instance_type": "basic",
-    //   "instance_type": "standard-1",
-      "max_instances": 1
-    }
-  ],
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "TODO_DB",
-        "class_name": "TodoDB"
-      },
-      {
-        "name": "VOICE_CONTAINER",
-        "class_name": "VoiceContainer"
-      }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["TodoDB"]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["VoiceContainer"]
-    }
-  ],
-  "triggers": {
-    "crons": ["*/5 * * * *"]
-  }
+	"name": "todo-app",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-01",
+	"observability": {
+		"enabled": true
+	},
+	"assets": {
+		"directory": "./assets"
+	},
+	"containers": [
+		{
+			"class_name": "VoiceContainer",
+			"image": "./container/voice/Dockerfile",
+			"instance_type": "basic",
+			//   "instance_type": "standard-1",
+			"max_instances": 1
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "TODO_DB",
+				"class_name": "TodoDB"
+			},
+			{
+				"name": "VOICE_CONTAINER",
+				"class_name": "VoiceContainer"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"TodoDB"
+			]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": [
+				"VoiceContainer"
+			]
+		}
+	],
+	"triggers": {
+		"crons": [
+			"*/5 * * * *",
+			"0 * * * *"
+		]
+	},
+	"r2_buckets": [
+		{
+			"bucket_name": "todo-app-backup",
+			"binding": "TODO_BACKUP"
+		}
+	]
 }
