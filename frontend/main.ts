@@ -7,6 +7,7 @@ interface Todo {
   title: string;
   completed: number;
   created_at: string;
+  voice_status: "pending" | "processing" | "done" | "error";
 }
 
 Alpine.data("todoApp", () => ({
@@ -14,6 +15,7 @@ Alpine.data("todoApp", () => ({
   newTitle: "" as string,
   loading: true as boolean,
   error: "" as string,
+  playingId: null as number | null,
 
   get activeTodos(): Todo[] {
     return this.todos.filter((t: Todo) => !t.completed);
@@ -25,6 +27,14 @@ Alpine.data("todoApp", () => ({
 
   async init() {
     await this.fetchTodos();
+    // pending / processing がある間は 15 秒ごとに自動更新
+    setInterval(async () => {
+      const hasPending = (this.todos as Todo[]).some(
+        (t: Todo) =>
+          t.voice_status === "pending" || t.voice_status === "processing",
+      );
+      if (hasPending) await this.fetchTodos();
+    }, 15_000);
   },
 
   async fetchTodos() {
@@ -66,7 +76,9 @@ Alpine.data("todoApp", () => ({
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const updated: Todo = await res.json();
-      const idx = (this.todos as Todo[]).findIndex((t: Todo) => t.id === todo.id);
+      const idx = (this.todos as Todo[]).findIndex(
+        (t: Todo) => t.id === todo.id,
+      );
       if (idx !== -1) (this.todos as Todo[])[idx] = updated;
     } catch {
       this.error = "更新に失敗しました";
@@ -82,6 +94,40 @@ Alpine.data("todoApp", () => ({
     }
   },
 
+  async playAudio(id: number) {
+    if (this.playingId === id) return;
+    this.playingId = id;
+    try {
+      const res = await fetch(`${API}/${id}/voice`);
+      if (!res.ok) throw new Error("音声データなし");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        this.playingId = null;
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        this.playingId = null;
+        this.error = "音声の再生に失敗しました";
+      };
+      await audio.play();
+    } catch {
+      this.error = "音声再生に失敗しました";
+      this.playingId = null;
+    }
+  },
+
+  voiceIcon(status: string): string {
+    const icons: Record<string, string> = {
+      pending: "🕐",
+      processing: "⚙️",
+      error: "⚠️",
+    };
+    return icons[status] ?? "";
+  },
+
   formatDate(iso: string): string {
     return new Date(iso.replace(" ", "T") + "Z").toLocaleDateString("ja-JP", {
       month: "short",
@@ -91,3 +137,4 @@ Alpine.data("todoApp", () => ({
 }));
 
 Alpine.start();
+

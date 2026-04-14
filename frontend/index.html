@@ -14,6 +14,7 @@
       <div class="badges">
         <span class="badge">⚡ Static Assets</span>
         <span class="badge">🗄️ Durable Objects (SQLite)</span>
+        <span class="badge">🔊 VOICEVOX</span>
       </div>
     </header>
 
@@ -63,6 +64,15 @@
                   aria-label="完了切替"
                 />
                 <span class="todo-title" x-text="todo.title"></span>
+                <span class="voice-icon" x-text="voiceIcon(todo.voice_status)" x-show="todo.voice_status !== 'done'" :title="todo.voice_status"></span>
+                <button
+                  x-show="todo.voice_status === 'done'"
+                  class="play-btn"
+                  :class="{ 'playing': playingId === todo.id }"
+                  @click="playAudio(todo.id)"
+                  aria-label="音声再生"
+                  title="音声再生"
+                >🔊</button>
                 <span class="todo-meta" x-text="formatDate(todo.created_at)"></span>
                 <button class="delete-btn" @click="deleteTodo(todo.id)" aria-label="削除" title="削除">✕</button>
               </div>
@@ -84,6 +94,14 @@
                   aria-label="完了切替"
                 />
                 <span class="todo-title completed" x-text="todo.title"></span>
+                <button
+                  x-show="todo.voice_status === 'done'"
+                  class="play-btn"
+                  :class="{ 'playing': playingId === todo.id }"
+                  @click="playAudio(todo.id)"
+                  aria-label="音声再生"
+                  title="音声再生"
+                >🔊</button>
                 <span class="todo-meta" x-text="formatDate(todo.created_at)"></span>
                 <button class="delete-btn" @click="deleteTodo(todo.id)" aria-label="削除" title="削除">✕</button>
               </div>
