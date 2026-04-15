@@ -1,8 +1,10 @@
 /* Pico.css ベースに上書きするカスタムスタイル */
 @import "@picocss/pico/css/pico.violet.min.css";
+@import url("https://fonts.googleapis.com/css2?family=LINESeedJP:wght@400;700&display=swap");
 
 :root {
-  --pico-font-size: 15px;
+  --pico-font-size: 17px;
+  --pico-font-family: "LINESeedJP", sans-serif;
 }
 
 body {
@@ -35,9 +37,9 @@ body {
   font-weight: 600;
   padding: 2px 10px;
   border-radius: 9999px;
-  background: var(--pico-primary-background);
-  color: var(--pico-primary);
-  border: 1px solid var(--pico-primary-border);
+  background: var(--pico-primary);
+  color: #fff;
+  border: 1px solid var(--pico-primary);
 }
 
 .todo-list article {
