@@ -6,6 +6,8 @@
     "dev:frontend": "vite",
     "build:frontend": "vite build",
     "dev": "wrangler dev",
+    "restore": "node scripts/restore-local.mjs",
+    "voice": "node scripts/voice-batch-local.mjs",
     "deploy": "npm run build:frontend && wrangler deploy",
     "cf-typegen": "wrangler types"
   },

@@ -209,6 +209,22 @@ export class TodoDB extends DurableObject {
       });
     });
 
+    // POST /api/admin/db-restore - SQL バックアップを復元（ローカル開発専用）
+    app.post("/api/admin/db-restore", async (c) => {
+      const body = await c.req.text();
+      // INSERT INTO 行のみ抽出し、巨大な voice_data BLOB は NULL に置換
+      const inserts = body
+        .split("\n")
+        .filter((line) => line.trimStart().toUpperCase().startsWith("INSERT INTO TODOS"))
+        .map((line) => line.trim().replace(/X'[0-9a-fA-F]+'/g, "NULL"));
+      this.sql.exec("DELETE FROM todos");
+      for (const stmt of inserts) {
+        if (stmt) this.sql.exec(stmt);
+      }
+      const count = (this.sql.exec("SELECT COUNT(*) AS n FROM todos").one() as { n: number }).n;
+      return c.json({ ok: true, restored: count });
+    });
+
     return app;
   }
 

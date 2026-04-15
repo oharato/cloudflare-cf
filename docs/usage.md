@@ -22,14 +22,45 @@ npx wrangler r2 bucket create todo-app-backup
 ## ローカル開発
 
 ```bash
-# フロントエンド開発サーバー (Vite HMR)
-npm run dev:frontend
-
 # Worker ローカル開発 (Miniflare)
 npm run dev
+
+# フロントエンド開発サーバー (Vite HMR) — 別ターミナルで
+npm run dev:frontend
 ```
 
-> ローカル開発では Container / Cron は動作しません。フロントエンドの `/api` リクエストは `npm run dev` で起動した Worker に向けます。
+> ローカル開発では Cloudflare Container / Cron は動作しません。フロントエンドの `/api` リクエストは `npm run dev` で起動した Worker に向けます。
+
+### ローカルへのデータ復元
+
+本番 R2 のバックアップをローカル SQLite に流し込みます。`npm run dev` が起動済みの状態で実行してください。
+
+```bash
+npm run restore
+```
+
+内部では `npx wrangler r2 object get … --remote` で `backups/latest.sql` を取得し、`POST /api/admin/db-restore` へ送信します。`voice_data`（音声 BLOB）は容量節約のため NULL でインポートされます。
+
+### ローカルでの音声合成バッチ
+
+本番の Cron の代わりに、ローカル Docker コンテナで音声合成を実行します。
+
+**前提**: Docker が起動していること。
+
+```bash
+npm run voice
+```
+
+初回は `container/voice/Dockerfile` から自動でイメージをビルドし、コンテナを起動します（VOICEVOX エンジンの起動に 1〜2 分かかります）。2 回目以降は起動済みコンテナを再利用します。
+
+| ステップ | 内容 |
+|---|---|
+| イメージビルド | `docker build -t voicevox-local:latest container/voice/` |
+| コンテナ起動 | `docker run -d --rm --name voicevox-local -p 3001:3001 voicevox-local:latest` |
+| 音声合成 | `localhost:3001/synthesize` に pending タスクを順次 POST |
+| DB 保存 | gzip 圧縮済み WAV を `POST /api/voice/:id/data` で保存 |
+
+> コンテナを手動で停止するには `docker stop voicevox-local`。
 
 ## デプロイ
 
