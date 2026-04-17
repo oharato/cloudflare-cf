@@ -2,18 +2,52 @@
 
 ## システム構成図
 
-```
-ブラウザ
-  │
-  ▼
-Cloudflare Worker (src/index.ts)
-  ├─ GET /              → Static Assets (assets/)
-  ├─ /api/*             → TodoDB (Durable Object / SQLite)
-  │                          CRUD + 音声データ BLOB 管理
-  ├─ Cron (*/5 * * * *) → VoiceContainer (VOICEVOX + Node.js proxy)
-  │                          POST /synthesize → gzip WAV → DB BLOB
-  └─ Cron (0 * * * *)   → TodoDB /api/admin/db-dump
-                             → SQL ダンプ → R2 (todo-app-backup)
+```mermaid
+graph TD
+    Browser["🌐 ブラウザ"]
+
+    subgraph CF["Cloudflare Edge"]
+        Worker["⚙️ Cloudflare Worker<br/>src/index.ts<br/>(Hono ルーター)"]
+        Assets["📦 Static Assets<br/>assets/<br/>(Vite ビルド出力)"]
+
+        subgraph DO["Durable Objects"]
+            TodoDB["🗄️ TodoDB<br/>src/todo-db.ts<br/>(SQLite CRUD + 音声 BLOB 管理)"]
+            VoiceContainer["🔊 VoiceContainer<br/>src/voice-container.ts<br/>(port 3001 / sleepAfter 30m)"]
+        end
+
+        subgraph Container["Cloudflare Containers"]
+            VoiceServer["🎙️ VOICEVOX + Node.js Proxy<br/>container/voice/server.js<br/>(audio_query → synthesis → gzip WAV)"]
+        end
+
+        R2["🪣 R2 Bucket<br/>todo-app-backup<br/>(SQLite ダンプ保管)"]
+    end
+
+    %% ブラウザ ↔ Worker
+    Browser -- "GET /" --> Worker
+    Browser -- "POST/GET/PATCH/DELETE /api/*" --> Worker
+
+    %% Worker → Static Assets
+    Worker -- "静的ファイル配信" --> Assets
+    Assets -- "HTML / JS / CSS" --> Browser
+
+    %% Worker → TodoDB (API)
+    Worker -- "TODO CRUD リクエスト /api/*" --> TodoDB
+    TodoDB -- "レスポンス (JSON)" --> Worker
+    Worker -- "JSON レスポンス" --> Browser
+
+    %% Cron (*/5) → 音声合成フロー
+    Worker -- "⏰ Cron: */5 * * * * / GET /api/voice/pending" --> TodoDB
+    TodoDB -- "pending TODO 一覧" --> Worker
+    Worker -- "POST /synthesize { text }" --> VoiceContainer
+    VoiceContainer -- "HTTP proxy" --> VoiceServer
+    VoiceServer -- "gzip WAV バイナリ" --> VoiceContainer
+    VoiceContainer -- "gzip WAV バイナリ" --> Worker
+    Worker -- "POST /api/voice/:id/data (音声 BLOB 保存)" --> TodoDB
+
+    %% Cron (0 * * * *) → R2 バックアップ
+    Worker -- "⏰ Cron: 0 * * * * / GET /api/admin/db-dump" --> TodoDB
+    TodoDB -- "SQL ダンプテキスト" --> Worker
+    Worker -- "PUT backups/{timestamp}.sql / latest.sql" --> R2
 ```
 
 ## コンポーネント一覧
