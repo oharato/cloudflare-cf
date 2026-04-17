@@ -102,15 +102,6 @@ export default {
         console.log(`[Voice] ${pending.length} 件の音声合成を開始`);
 
         for (const todo of pending) {
-          // 処理中に更新
-          await dbStub.fetch(
-            new Request(`http://internal/api/voice/${todo.id}/status`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ status: "processing" }),
-            }),
-          );
-
           try {
             // VOICEVOX コンテナに音声合成リクエスト（gzip 圧縮済みバイナリが返る）
             const synthRes = await voiceStub.fetch(

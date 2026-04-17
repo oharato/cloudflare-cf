@@ -129,11 +129,11 @@ export class TodoDB extends DurableObject {
 
     // ── Voice 処理 API（Cron Worker から呼ばれる）────────────────
 
-    // GET /api/voice/pending - 音声合成待ち一覧
+    // GET /api/voice/pending - 音声合成待ち一覧（取得と同時に processing へ更新してダブル起動を防止）
     app.get("/api/voice/pending", (c) => {
       const todos = this.sql
         .exec(
-          "SELECT id, title FROM todos WHERE voice_status = 'pending' ORDER BY id ASC",
+          "UPDATE todos SET voice_status = 'processing' WHERE voice_status = 'pending' RETURNING id, title",
         )
         .toArray() as unknown as { id: number; title: string }[];
       return c.json(todos);
