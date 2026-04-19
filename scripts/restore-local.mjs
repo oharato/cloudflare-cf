@@ -1,59 +1,52 @@
 #!/usr/bin/env node
 /**
- * R2 の最新バックアップをローカル開発サーバーに復元するスクリプト
+ * D1 本番データをローカル開発環境に復元するスクリプト
  *
  * 使い方:
- *   1. 別ターミナルで `npm run dev` を起動しておく
+ *   1. 別ターミナルで `npm run dev` を起動しておく（任意、API 復元の場合のみ）
  *   2. `npm run restore` を実行
+ *
+ * 動作:
+ *   - `wrangler d1 export todo-app-db --remote` でリモート D1 をエクスポート
+ *   - `wrangler d1 execute todo-app-db --local` でローカル D1 に適用
  */
 
 import { execSync } from "child_process";
-import { readFileSync, unlinkSync, existsSync } from "fs";
+import { unlinkSync, existsSync } from "fs";
 
-const DEV_URL = "http://localhost:8787";
-const BUCKET = "todo-app-backup";
-const KEY = "backups/latest.sql";
-const TMP = "/tmp/todo-backup-restore.sql";
+const DB_NAME = "todo-app-db";
+const TMP = "/tmp/d1-restore.sql";
 
-// ── R2 からダウンロード ──────────────────────────────────────────
-console.log(`📥 R2 (${BUCKET}/${KEY}) からバックアップを取得中...`);
+// ── リモート D1 をエクスポート ────────────────────────────────────
+console.log(`📥 D1 (${DB_NAME}) からデータをエクスポート中...`);
 try {
   execSync(
-    `npx wrangler r2 object get "${BUCKET}/${KEY}" --file "${TMP}" --remote`,
+    `npx wrangler d1 export ${DB_NAME} --remote --output "${TMP}"`,
     { stdio: "inherit" },
   );
 } catch {
-  console.error("❌ R2 からの取得に失敗しました。`wrangler login` を確認してください。");
+  console.error("❌ D1 エクスポートに失敗しました。`wrangler login` を確認してください。");
   process.exit(1);
 }
 
 if (!existsSync(TMP)) {
-  console.error("❌ ダウンロードされたファイルが見つかりません。");
+  console.error("❌ エクスポートファイルが見つかりません。");
   process.exit(1);
 }
+console.log("✅ エクスポート完了");
 
-const sql = readFileSync(TMP, "utf8");
-unlinkSync(TMP);
-console.log(`✅ 取得完了 (${(sql.length / 1024).toFixed(1)} KB)`);
-
-// ── ローカル dev サーバーへ POST ─────────────────────────────────
-console.log(`\n🔁 ${DEV_URL}/api/admin/db-restore へ復元中...`);
-let res;
+// ── ローカル D1 に適用 ───────────────────────────────────────────
+console.log(`\n🔁 ローカル D1 (${DB_NAME}) に適用中...`);
 try {
-  res = await fetch(`${DEV_URL}/api/admin/db-restore`, {
-    method: "POST",
-    body: sql,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
+  execSync(
+    `npx wrangler d1 execute ${DB_NAME} --local --file "${TMP}"`,
+    { stdio: "inherit" },
+  );
 } catch {
-  console.error(`❌ 接続できませんでした。\n   先に別ターミナルで "npm run dev" を起動してください。`);
+  console.error("❌ ローカル D1 への適用に失敗しました。");
+  unlinkSync(TMP);
   process.exit(1);
 }
 
-if (!res.ok) {
-  console.error(`❌ 復元失敗 (HTTP ${res.status}):`, await res.text());
-  process.exit(1);
-}
-
-const { restored } = await res.json();
-console.log(`✅ 復元完了! ${restored} 件のタスクをインポートしました。`);
+unlinkSync(TMP);
+console.log("✅ ローカル D1 への復元が完了しました。");

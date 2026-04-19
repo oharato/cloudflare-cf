@@ -2,6 +2,7 @@
 	"name": "todo-app",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-04-01",
+	"compatibility_flags": ["nodejs_compat"],
 	"observability": {
 		"enabled": true
 	},
@@ -20,10 +21,6 @@
 	"durable_objects": {
 		"bindings": [
 			{
-				"name": "TODO_DB",
-				"class_name": "TodoDB"
-			},
-			{
 				"name": "VOICE_CONTAINER",
 				"class_name": "VoiceContainer"
 			}
@@ -41,18 +38,40 @@
 			"new_sqlite_classes": [
 				"VoiceContainer"
 			]
+		},
+		{
+			"tag": "v3",
+			"renamed_classes": [
+				{ "from": "TodoDB", "to": "TodoAgent" }
+			]
+		},
+		{
+			// TodoAgent DO を廃止（D1 + Worker で直接処理）
+			"tag": "v4",
+			"deleted_classes": [
+				"TodoAgent"
+			]
 		}
 	],
 	"triggers": {
 		"crons": [
-			"*/5 * * * *",
-			"0 * * * *"
+			"*/5 * * * *"
 		]
 	},
+	"d1_databases": [
+		{
+			"binding": "TODOS_DB",
+			"database_name": "todo-app-db",
+			"database_id": "fe925dd3-00b7-4809-aaf2-666c39a34d75",
+			"migrations_dir": "migrations"
+		}
+	],
 	"r2_buckets": [
 		{
-			"bucket_name": "todo-app-backup",
-			"binding": "TODO_BACKUP"
+			// 音声ファイル保存用 R2 バケット
+			// `wrangler r2 bucket create todo-app-voice` で作成してください
+			"bucket_name": "todo-app-voice",
+			"binding": "TODO_VOICE"
 		}
 	]
 }

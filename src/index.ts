@@ -1,98 +1,143 @@
 import { Hono } from "hono";
-import { TodoDB } from "./todo-db.ts";
+import { cors } from "hono/cors";
 import { VoiceContainer } from "./voice-container.ts";
 import { TodoContainer } from "./container.ts";
 
-export { TodoDB, VoiceContainer, TodoContainer };
+export { VoiceContainer, TodoContainer };
+
+interface Todo {
+  id: number;
+  title: string;
+  completed: number;
+  created_at: string;
+  voice_status: "pending" | "processing" | "done" | "error";
+  voice_r2_key: string | null;
+}
 
 interface Env {
-  TODO_DB: DurableObjectNamespace;
   VOICE_CONTAINER: DurableObjectNamespace;
-  TODO_BACKUP: R2Bucket;
+  TODOS_DB: D1Database;
+  TODO_VOICE: R2Bucket;
 }
 
 const app = new Hono<{ Bindings: Env }>();
+app.use(cors());
 
-// すべての API リクエストを TodoDB (Durable Object) へ転送
-app.all("/api/*", async (c) => {
-  const stub = c.env.TODO_DB.get(c.env.TODO_DB.idFromName("global"));
-  return stub.fetch(c.req.raw);
+// ── TODO CRUD ────────────────────────────────────────────────────
+
+// GET /api/todos - 一覧取得
+app.get("/api/todos", async (c) => {
+  const { results } = await c.env.TODOS_DB
+    .prepare(
+      "SELECT id, title, completed, created_at, voice_status FROM todos ORDER BY created_at DESC",
+    )
+    .all<Todo>();
+  return c.json(results);
+});
+
+// POST /api/todos - 作成
+app.post("/api/todos", async (c) => {
+  const body = await c.req.json<{ title?: string }>();
+  const title = body?.title?.trim();
+  if (!title) return c.json({ error: "title は必須です" }, 400);
+  const todo = await c.env.TODOS_DB
+    .prepare(
+      "INSERT INTO todos (title) VALUES (?) RETURNING id, title, completed, created_at, voice_status",
+    )
+    .bind(title)
+    .first<Todo>();
+  return c.json(todo, 201);
+});
+
+// PATCH /api/todos/:id - 更新
+app.patch("/api/todos/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const body = await c.req.json<{ title?: string; completed?: boolean }>();
+  if (body.title !== undefined) {
+    const title = body.title.trim();
+    if (!title) return c.json({ error: "title は空にできません" }, 400);
+    await c.env.TODOS_DB
+      .prepare("UPDATE todos SET title = ? WHERE id = ?")
+      .bind(title, id)
+      .run();
+  }
+  if (body.completed !== undefined) {
+    await c.env.TODOS_DB
+      .prepare("UPDATE todos SET completed = ? WHERE id = ?")
+      .bind(body.completed ? 1 : 0, id)
+      .run();
+  }
+  const todo = await c.env.TODOS_DB
+    .prepare(
+      "SELECT id, title, completed, created_at, voice_status FROM todos WHERE id = ?",
+    )
+    .bind(id)
+    .first<Todo>();
+  if (!todo) return c.json({ error: "見つかりません" }, 404);
+  return c.json(todo);
+});
+
+// DELETE /api/todos/:id - 削除（R2 音声ファイルも削除）
+app.delete("/api/todos/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const row = await c.env.TODOS_DB
+    .prepare("SELECT voice_r2_key FROM todos WHERE id = ?")
+    .bind(id)
+    .first<{ voice_r2_key: string | null }>();
+  await c.env.TODOS_DB.prepare("DELETE FROM todos WHERE id = ?").bind(id).run();
+  if (row?.voice_r2_key) {
+    await c.env.TODO_VOICE.delete(row.voice_r2_key).catch(() => {});
+  }
+  return new Response(null, { status: 204 });
+});
+
+// GET /api/todos/:id/voice - R2 から音声データを取得して gzip 展開
+app.get("/api/todos/:id/voice", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const row = await c.env.TODOS_DB
+    .prepare(
+      "SELECT voice_r2_key FROM todos WHERE id = ? AND voice_status = 'done'",
+    )
+    .bind(id)
+    .first<{ voice_r2_key: string | null }>();
+  if (!row?.voice_r2_key) return c.json({ error: "音声データなし" }, 404);
+
+  const obj = await c.env.TODO_VOICE.get(row.voice_r2_key);
+  if (!obj) return c.json({ error: "音声ファイルが見つかりません" }, 404);
+
+  const ds = new DecompressionStream("gzip");
+  const stream = obj.body.pipeThrough(ds);
+  return new Response(stream, { headers: { "Content-Type": "audio/wav" } });
 });
 
 // 静的ファイルは Cloudflare Static Assets が自動配信
-// R2 バックアップ処理
-async function backupToR2(env: Env): Promise<void> {
-  try {
-    const dbStub = env.TODO_DB.get(env.TODO_DB.idFromName("global"));
-    const dumpRes = await dbStub.fetch(
-      new Request("http://internal/api/admin/db-dump"),
-    );
-    if (!dumpRes.ok) {
-      console.error(`[Backup] dump 取得失敗: ${dumpRes.status}`);
-      return;
-    }
-    const dumpData = await dumpRes.text();
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const key = `backups/${timestamp}.sql`;
-
-    await Promise.all([
-      // タイムスタンプ付きバックアップ (30 日間保持)
-      env.TODO_BACKUP.put(key, dumpData, {
-        httpMetadata: { contentType: "text/plain; charset=utf-8" },
-        customMetadata: { size: String(dumpData.length) },
-      }),
-      // 最新バックアップ (常に上書き)
-      env.TODO_BACKUP.put("backups/latest.sql", dumpData, {
-        httpMetadata: { contentType: "text/plain; charset=utf-8" },
-        customMetadata: { size: String(dumpData.length), timestamp },
-      }),
-    ]);
-
-    console.log(
-      `[Backup] R2 に保存完了: ${key} (${(dumpData.length / 1024).toFixed(1)} KB)`,
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
-    console.error(`[Backup] エラー: ${msg}`);
-  }
-}
 
 export default {
   fetch: app.fetch,
 
   // Cron Trigger:
   //   */5 * * * *  → 未処理 TODO を VOICEVOX で音声合成
-  //   0 * * * *    → SQLite ファイルを R2 にバックアップ
   async scheduled(
     _event: ScheduledEvent,
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
-    // 毎時 0 分: SQLite ファイルを R2 にバックアップ
-    if (_event.cron === "0 * * * *") {
-      await backupToR2(env);
-      return;
-    }
-
     try {
-      const dbStub = env.TODO_DB.get(env.TODO_DB.idFromName("global"));
       const voiceStub = env.VOICE_CONTAINER.get(
         env.VOICE_CONTAINER.idFromName("singleton"),
       );
 
       // 未処理がなくなるまでループ
       while (true) {
-        const pendingRes = await dbStub.fetch(
-          new Request("http://internal/api/voice/pending"),
-        );
-        if (!pendingRes.ok) {
-          console.error(`[Voice] pending 取得失敗: ${pendingRes.status} ${await pendingRes.text()}`);
-          break;
-        }
-        const pending = (await pendingRes.json()) as {
-          id: number;
-          title: string;
-        }[];
+        // pending → processing に原子的に更新して取得
+        const { results: pending } = await env.TODOS_DB
+          .prepare(
+            `UPDATE todos
+             SET voice_status = 'processing'
+             WHERE id IN (SELECT id FROM todos WHERE voice_status = 'pending')
+             RETURNING id, title`,
+          )
+          .all<{ id: number; title: string }>();
 
         if (pending.length === 0) {
           console.log("[Voice] 未処理タスクなし - 終了");
@@ -103,7 +148,6 @@ export default {
 
         for (const todo of pending) {
           try {
-            // VOICEVOX コンテナに音声合成リクエスト（gzip 圧縮済みバイナリが返る）
             const synthRes = await voiceStub.fetch(
               new Request("http://voice/synthesize", {
                 method: "POST",
@@ -119,27 +163,27 @@ export default {
             }
 
             const audioData = await synthRes.arrayBuffer();
+            const key = `voice/${todo.id}.wav.gz`;
 
-            // 圧縮済み音声 BLOB を DB に保存
-            await dbStub.fetch(
-              new Request(`http://internal/api/voice/${todo.id}/data`, {
-                method: "POST",
-                headers: { "Content-Type": "application/octet-stream" },
-                body: audioData,
-              }),
-            );
+            await env.TODO_VOICE.put(key, audioData, {
+              httpMetadata: { contentType: "audio/wav", contentEncoding: "gzip" },
+            });
+
+            await env.TODOS_DB
+              .prepare(
+                "UPDATE todos SET voice_r2_key = ?, voice_status = 'done' WHERE id = ?",
+              )
+              .bind(key, todo.id)
+              .run();
 
             console.log(`[Voice] Todo ${todo.id} 「${todo.title}」 完了`);
           } catch (err) {
             const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
             console.error(`[Voice] Todo ${todo.id} 「${todo.title}」 失敗: ${msg}`);
-            await dbStub.fetch(
-              new Request(`http://internal/api/voice/${todo.id}/status`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ status: "error" }),
-              }),
-            );
+            await env.TODOS_DB
+              .prepare("UPDATE todos SET voice_status = 'error' WHERE id = ?")
+              .bind(todo.id)
+              .run();
           }
         }
       }
