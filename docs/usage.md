@@ -15,9 +15,17 @@ npm install
 # Cloudflare にログイン (初回のみ)
 npx wrangler login
 
+# D1 データベース作成 (初回のみ)
+npx wrangler d1 create todo-app-db
+
+# D1 マイグレーション実行 (初回のみ)
+npx wrangler d1 migrations apply todo-app-db --remote
+
 # R2 バケット作成 (初回のみ)
-npx wrangler r2 bucket create todo-app-backup
+npx wrangler r2 bucket create todo-app-voice
 ```
+
+> D1 作成後、出力された `database_id` を `wrangler.jsonc` の `d1_databases[].database_id` に設定してください。
 
 ## ローカル開発
 
@@ -33,32 +41,32 @@ npm run dev:frontend
 
 ### ローカルへのデータ復元
 
-本番 R2 のバックアップをローカル SQLite に流し込みます。`npm run dev` が起動済みの状態で実行してください。
+本番 D1 のデータをローカル D1 に復元します。`npm run dev` が起動済みの状態で実行してください。
 
 ```bash
 npm run restore
 ```
 
-内部では `npx wrangler r2 object get … --remote` で `backups/latest.sql` を取得し、`POST /api/admin/db-restore` へ送信します。`voice_data`（音声 BLOB）は容量節約のため NULL でインポートされます。
+内部では `wrangler d1 export --remote` で本番データを取得し、`wrangler d1 execute --local` でローカルに流し込みます。
 
 ### ローカルでの音声合成バッチ
 
 本番の Cron の代わりに、ローカル Docker コンテナで音声合成を実行します。
 
-**前提**: Docker が起動していること。
+**前提**: Docker が起動していること、`npm run dev` が起動済みであること。
 
 ```bash
 npm run voice
 ```
 
-初回は `container/voice/Dockerfile` から自動でイメージをビルドし、コンテナを起動します（VOICEVOX エンジンの起動に 1〜2 分かかります）。2 回目以降は起動済みコンテナを再利用します。
+初回は `container/voice/Dockerfile` から自動でイメージをビルドし、コンテナを起動します（VOICEVOX エンジンの起動に 1〜2 分かかります）。
 
 | ステップ | 内容 |
 |---|---|
 | イメージビルド | `docker build -t voicevox-local:latest container/voice/` |
 | コンテナ起動 | `docker run -d --rm --name voicevox-local -p 3001:3001 voicevox-local:latest` |
 | 音声合成 | `localhost:3001/synthesize` に pending タスクを順次 POST |
-| DB 保存 | gzip 圧縮済み WAV を `POST /api/voice/:id/data` で保存 |
+| R2 / D1 保存 | gzip WAV を R2 に PUT → D1 の voice_r2_key / voice_status を更新 |
 
 > コンテナを手動で停止するには `docker stop voicevox-local`。
 
@@ -83,8 +91,8 @@ npm run deploy
 
 | エラー | 原因 | 対処 |
 |---|---|---|
-| `Image too large: needs XXXMB, but limited to 2000MB` | `instance_type` がデフォルト `lite` (2GB disk) | `wrangler.jsonc` の `instance_type` を `"basic"` 以上に変更 |
-| `script does not export class 'TodoContainer'` | 旧 Container クラスが Cloudflare 側に残存 | `src/container.ts` の `TodoContainer` が `src/index.ts` からエクスポートされているか確認 |
+| `Image too large: needs XXXMB, but limited to 2000MB` | `instance_type` が `lite` (2GB disk) | `wrangler.jsonc` の `instance_type` を `"basic"` 以上に変更 |
+| `script does not export class 'TodoContainer'` | Cloudflare 側に旧クラスが残存 | `src/container.ts` の `TodoContainer` が `src/index.ts` からエクスポートされているか確認 |
 | `Durable Object reset because its code was updated.` | デプロイ直後に旧 DO インスタンスが切断 | 一時的なエラー。次回 Cron 実行時に自動復旧 |
 | `A request to the Cloudflare API failed` | 認証切れ | `npx wrangler login` を再実行 |
 | Docker not running | Container ビルドに Docker が必要 | Docker Desktop を起動してから再実行 |
@@ -96,25 +104,5 @@ npm run deploy
 npx wrangler tail todo-app --format pretty
 
 # フィルタ例
-npx wrangler tail todo-app --format pretty | grep -E "Voice|Backup|ERROR"
-```
-
-Dashboard でも確認できます: **Cloudflare Dashboard → Workers → todo-app → Logs**  
-（`observability.enabled: true` により 7 日間保持）
-
-## Cron の手動実行
-
-Cloudflare Dashboard → Workers → **todo-app** → **Triggers** タブから手動実行できます。
-
-## R2 バックアップ操作
-
-```bash
-# バックアップ一覧
-npx wrangler r2 object list todo-app-backup
-
-# 最新ダンプをダウンロード
-npx wrangler r2 object get todo-app-backup/backups/latest.sql --file latest.sql
-
-# SQLite DB としてリストア
-sqlite3 restored.db < latest.sql
+npx wrangler tail todo-app --format pretty | grep -E "Voice|ERROR"
 ```

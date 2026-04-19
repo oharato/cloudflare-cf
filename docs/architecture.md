@@ -7,60 +7,54 @@ graph TD
     Browser["🌐 ブラウザ"]
 
     subgraph CF["Cloudflare Edge"]
-        Worker["⚙️ Cloudflare Worker<br/>src/index.ts<br/>(Hono ルーター)"]
-        Assets["📦 Static Assets<br/>assets/<br/>(Vite ビルド出力)"]
+        Worker["⚙️ Cloudflare Worker\nsrc/index.ts\n(Hono ルーター + Cron ハンドラ)"]
+        Assets["📦 Static Assets\nassets/\n(Vite ビルド出力)"]
 
         subgraph DO["Durable Objects"]
-            TodoDB["🗄️ TodoDB<br/>src/todo-db.ts<br/>(SQLite CRUD + 音声 BLOB 管理)"]
-            VoiceContainer["🔊 VoiceContainer<br/>src/voice-container.ts<br/>(port 3001 / sleepAfter 30m)"]
+            VoiceContainer["🔊 VoiceContainer\nsrc/voice-container.ts\n(port 3001 / sleepAfter 30m)"]
         end
 
         subgraph Container["Cloudflare Containers"]
-            VoiceServer["🎙️ VOICEVOX + Node.js Proxy<br/>container/voice/server.js<br/>(audio_query → synthesis → gzip WAV)"]
+            VoiceServer["🎙️ VOICEVOX + Node.js Proxy\ncontainer/voice/server.js\n(audio_query → synthesis → gzip WAV)"]
         end
 
-        R2["🪣 R2 Bucket<br/>todo-app-backup<br/>(SQLite ダンプ保管)"]
+        D1["🗄️ D1 Database\ntodo-app-db\n(todos テーブル)"]
+        R2["🪣 R2 Bucket\ntodo-app-voice\n(gzip WAV ファイル保管)"]
     end
 
-    %% ブラウザ ↔ Worker
     Browser -- "GET /" --> Worker
     Browser -- "POST/GET/PATCH/DELETE /api/*" --> Worker
 
-    %% Worker → Static Assets
     Worker -- "静的ファイル配信" --> Assets
     Assets -- "HTML / JS / CSS" --> Browser
 
-    %% Worker → TodoDB (API)
-    Worker -- "TODO CRUD リクエスト /api/*" --> TodoDB
-    TodoDB -- "レスポンス (JSON)" --> Worker
+    Worker -- "TODO CRUD (D1 直接)" --> D1
+    D1 -- "JSON レスポンス" --> Worker
     Worker -- "JSON レスポンス" --> Browser
 
-    %% Cron (*/5) → 音声合成フロー
-    Worker -- "⏰ Cron: */5 * * * * / GET /api/voice/pending" --> TodoDB
-    TodoDB -- "pending TODO 一覧" --> Worker
+    Worker -- "⏰ Cron: */5 * * * *\nUPDATE voice_status='processing'" --> D1
+    D1 -- "pending TODO 一覧" --> Worker
     Worker -- "POST /synthesize { text }" --> VoiceContainer
     VoiceContainer -- "HTTP proxy" --> VoiceServer
     VoiceServer -- "gzip WAV バイナリ" --> VoiceContainer
     VoiceContainer -- "gzip WAV バイナリ" --> Worker
-    Worker -- "POST /api/voice/:id/data (音声 BLOB 保存)" --> TodoDB
-
-    %% Cron (0 * * * *) → R2 バックアップ
-    Worker -- "⏰ Cron: 0 * * * * / GET /api/admin/db-dump" --> TodoDB
-    TodoDB -- "SQL ダンプテキスト" --> Worker
-    Worker -- "PUT backups/{timestamp}.sql / latest.sql" --> R2
+    Worker -- "PUT voice/{id}.wav.gz" --> R2
+    Worker -- "UPDATE voice_status='done'" --> D1
 ```
 
 ## コンポーネント一覧
 
 | コンポーネント | 技術 | 役割 |
 |---|---|---|
-| `src/index.ts` | Cloudflare Worker + Hono | ルーティング / Cron ハンドラ |
-| `src/todo-db.ts` | Durable Object + SQLite | TODO CRUD + 音声 API + DB ダンプ |
-| `src/voice-container.ts` | Cloudflare Containers | VOICEVOX DO クラス定義 |
+| `src/index.ts` | Cloudflare Worker + Hono | エントリーポイント / Cron ハンドラ |
+| `src/todo-service.ts` | Hono Router | TODO CRUD ルート + `runVoiceSynthesis` 関数 |
+| `src/voice-container.ts` | Cloudflare Containers | VoiceContainer DO クラス定義 |
+| `src/container.ts` | Durable Object | TodoContainer (後方互換エクスポート用) |
 | `container/voice/` | Docker (ubuntu:24.04 + VOICEVOX + Node.js) | 音声合成プロキシサーバー |
 | `frontend/` | Vite + Alpine.js + Pico.css | フロントエンドソース |
 | `assets/` | Cloudflare Static Assets | Vite ビルド出力 (配信用) |
-| R2 `todo-app-backup` | Cloudflare R2 | SQLite ダンプのバックアップ保存先 |
+| D1 `todo-app-db` | Cloudflare D1 | TODO データ永続化 |
+| R2 `todo-app-voice` | Cloudflare R2 | gzip 圧縮 WAV ファイル保管 |
 
 ## データフロー詳細
 
@@ -68,24 +62,16 @@ graph TD
 
 ```
 1. ブラウザ: POST /api/todos { "title": "..." }
-2. Worker → TodoDB: INSERT INTO todos (voice_status = 'pending')
-3. Cron (*/5): GET /api/voice/pending → pending TODO 一覧取得
+2. Worker → D1: INSERT INTO todos (voice_status = 'pending')
+3. Cron (*/5): UPDATE todos SET voice_status='processing'
+               WHERE id IN (SELECT id FROM todos WHERE voice_status='pending')
+               RETURNING id, title
 4. VoiceContainer: POST /synthesize { text }
        → VOICEVOX audio_query + synthesis
        → gzip 圧縮 WAV バイナリ
-5. PATCH /api/voice/:id/status { status: "processing" }
-6. POST /api/voice/:id/data { audio: <ArrayBuffer> }
-       → voice_data BLOB、voice_status = 'done' に更新
+5. R2: PUT voice/{id}.wav.gz
+6. D1: UPDATE todos SET voice_r2_key=?, voice_status='done' WHERE id=?
 7. フロントエンド: 15 秒ごとにポーリング → 🔊 ボタン表示
-```
-
-### R2 バックアップフロー
-
-```
-1. Cron (0 * * * *): backupToR2(env) 呼び出し
-2. GET /api/admin/db-dump → CREATE TABLE + INSERT 形式 SQL テキスト生成
-3. R2 PUT backups/{timestamp}.sql  ← タイムスタンプ付き (蓄積)
-4. R2 PUT backups/latest.sql       ← 常に最新で上書き
 ```
 
 ## プロジェクト構成
@@ -109,11 +95,16 @@ cloudflare-cf/
 │   ├── index.html              # Alpine.js ディレクティブ付き HTML
 │   ├── main.ts                 # Alpine.js コンポーネント
 │   └── style.css               # Pico.css violet + カスタムスタイル
+├── migrations/
+│   └── 0001_init.sql           # D1 スキーマ (todos テーブル)
+├── scripts/
+│   ├── restore-local.mjs       # 本番 D1 → ローカル D1 データ復元
+│   └── voice-batch-local.mjs   # ローカル Docker で音声合成バッチ実行
 ├── src/
 │   ├── index.ts                # Worker エントリーポイント + Cron ハンドラ
-│   ├── todo-db.ts              # Durable Object (SQLite CRUD + 音声 API + DB ダンプ)
+│   ├── todo-service.ts         # TODO CRUD ルーター + runVoiceSynthesis 関数
 │   ├── voice-container.ts      # VoiceContainer クラス定義 (port 3001, sleepAfter 30m)
-│   └── container.ts            # TodoContainer (旧クラス・後方互換用エクスポート)
+│   └── container.ts            # TodoContainer (後方互換エクスポート)
 ├── wrangler.jsonc
 ├── package.json
 ├── tsconfig.json
